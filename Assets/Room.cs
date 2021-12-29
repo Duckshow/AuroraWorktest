@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.Assertions;
 
 public class Room : MonoBehaviour
 {
@@ -6,26 +7,29 @@ public class Room : MonoBehaviour
     {
         RoomTile[] tiles = GetComponentsInChildren<RoomTile>();
 
-        int width, height;
-        GetDimensions(tiles, out width, out height);
+        int width, length;
+        GetDimensions(tiles, out width, out length);
 
-        RoomTile.TileType[,] tileMap = new RoomTile.TileType[width, height];
+        Assert.IsTrue(Utils.IsOdd(width), string.Format("{0} is {1} tiles wide, but room dimensions have to be odd!", gameObject.name, width));
+        Assert.IsTrue(Utils.IsOdd(length), string.Format("{0} is {1} tiles long, but room dimensions have to be odd!", gameObject.name, length));
+
+        RoomTile.TileType[,] tileMap = new RoomTile.TileType[width, length];
         FillTileMap(tiles, ref tileMap);
 
         return tileMap;
     }
 
-    private static void GetDimensions(RoomTile[] tiles, out int width, out int height)
+    private static void GetDimensions(RoomTile[] tiles, out int width, out int length)
     {
         width = 0;
-        height = 0;
+        length = 0;
 
         foreach (RoomTile piece in tiles)
         {
             Vector2 pos = piece.transform.position;
 
             if (pos.x > width) { width = Mathf.FloorToInt(pos.x); }
-            if (pos.y > height) { height = Mathf.FloorToInt(pos.y); }
+            if (pos.y > length) { length = Mathf.FloorToInt(pos.y); }
         }
     }
 
