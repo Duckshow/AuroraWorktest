@@ -3,48 +3,87 @@ using UnityEngine.Assertions;
 
 public class Room : MonoBehaviour
 {
-    public RoomTile.TileType[,] CreateTileMap()
+    [SerializeField, HideInInspector] private RoomTile[] roomTiles;
+    [SerializeField, HideInInspector] private Vector2Int dimensions;
+    [SerializeField, HideInInspector] private RoomTile.TileType[,] tileMap;
+
+    private void OnValidate()
     {
-        RoomTile[] tiles = GetComponentsInChildren<RoomTile>();
+        roomTiles = GetComponentsInChildren<RoomTile>();
+        dimensions = GetDimensions(roomTiles);
+        tileMap = new RoomTile.TileType[dimensions.x, dimensions.y];
 
-        int width, length;
-        GetDimensions(tiles, out width, out length);
+        FillTileMap(roomTiles, ref tileMap);
 
-        Assert.IsTrue(Utils.IsOdd(width), string.Format("{0} is {1} tiles wide, but room dimensions have to be odd!", gameObject.name, width));
-        Assert.IsTrue(Utils.IsOdd(length), string.Format("{0} is {1} tiles long, but room dimensions have to be odd!", gameObject.name, length));
-
-        RoomTile.TileType[,] tileMap = new RoomTile.TileType[width, length];
-        FillTileMap(tiles, ref tileMap);
-
-        return tileMap;
+        PerformSafetyChecks();
     }
 
-    private static void GetDimensions(RoomTile[] tiles, out int width, out int length)
+    private static Vector2Int GetDimensions(RoomTile[] tiles)
     {
-        width = 0;
-        length = 0;
+        Vector2Int dimensions = new Vector2Int();
 
         foreach (RoomTile piece in tiles)
         {
-            Vector2 pos = piece.transform.position;
+            Vector3 localPos = piece.transform.localPosition;
 
-            if (pos.x > width) { width = Mathf.FloorToInt(pos.x); }
-            if (pos.y > length) { length = Mathf.FloorToInt(pos.y); }
+            if (localPos.x > dimensions.x) { dimensions.x = Mathf.FloorToInt(localPos.x); }
+            if (localPos.z > dimensions.y) { dimensions.y = Mathf.FloorToInt(localPos.z); }
         }
+
+        dimensions.x++;
+        dimensions.y++;
+
+        return dimensions;
     }
 
     private static void FillTileMap(RoomTile[] tiles, ref RoomTile.TileType[,] tileMap)
     {
         foreach (RoomTile piece in tiles)
         {
-            Vector2 pos = piece.transform.position;
+            Vector2Int coords = piece.GetCoordinatesInRoom();
 
-            Vector2Int coords = new Vector2Int(
-                Mathf.FloorToInt(pos.x),
-                Mathf.FloorToInt(pos.y)
-            );
+            if (coords.x < 0 || coords.y < 0)
+            {
+                continue; // out-of-bounds coordinates will be flagged in PerformSafetyChecks(), but we have to get through this function first
+            }
 
             tileMap[coords.x, coords.y] = piece.Type;
         }
+    }
+
+    private void PerformSafetyChecks()
+    {
+        for (int i = 0; i < roomTiles.Length; i++)
+        {
+            RoomTile tile = roomTiles[i];
+            Vector2Int coords = tile.GetCoordinatesInRoom();
+
+            Assert.IsFalse(
+                coords.x < 0 || coords.y < 0,
+                string.Format("{0} has a {1} with a local position below 0!", transform.name, tile.Type)
+            );
+
+            RoomTile.TileType tileType = tileMap[coords.x, coords.y];
+            if (tileType != RoomTile.TileType.Passage) // TODO: if adding doors, add check for Door-type here
+            {
+                continue;
+            }
+
+            CardinalDirection direction = tile.GetCardinalDirection();
+            Vector2Int neighborCoords = coords + Utils.CardinalDirectionToVector(direction);
+
+            if (neighborCoords.x > 0 && neighborCoords.x < dimensions.x && neighborCoords.y > 0 && neighborCoords.y < dimensions.y)
+            {
+                Assert.IsTrue(
+                    tileMap[neighborCoords.x, neighborCoords.y] == RoomTile.TileType.None,
+                    string.Format("{0} has a Door/Passage that is not connected to empty space! This will break the level generator!", transform.name)
+                );
+            }
+        }
+
+        Assert.IsTrue(
+            Utils.IsOdd(dimensions.x) && Utils.IsOdd(dimensions.y),
+            string.Format("{0} has dimensions {1}, but room dimensions have to be odd!", transform.name, dimensions)
+        );
     }
 }
