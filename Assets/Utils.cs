@@ -5,6 +5,18 @@ public enum CardinalDirection { None, North, NorthEast, East, SouthEast, South, 
 public static class Utils
 {
     public static bool IsOdd(float x) { return x % 2 == 1; }
+    public static bool IsPowerOfTwo(int x) { return (x != 0) && ((x & (x - 1)) == 0); }
+    public static int RoundUpToPowerOfTwo(int x)
+    {
+        x--;
+        x |= x >> 1;
+        x |= x >> 2;
+        x |= x >> 4;
+        x |= x >> 8;
+        x |= x >> 16;
+        x++;
+        return x;
+    }
 
     public static Vector2Int CardinalDirectionToVector(CardinalDirection dir)
     {
