@@ -7,6 +7,9 @@ public class Room : MonoBehaviour
     [SerializeField, HideInInspector] private Vector2Int dimensions;
     [SerializeField, HideInInspector] private RoomTile.TileType[,] tileMap;
 
+    public Vector2Int Dimensions { get { return dimensions; } }
+    public RoomTile.TileType[,] TileMap { get { return tileMap; } }
+
     private void OnValidate()
     {
         roomTiles = GetComponentsInChildren<RoomTile>();
