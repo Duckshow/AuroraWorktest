@@ -1,14 +1,17 @@
 using UnityEngine;
 using UnityEngine.Assertions;
+using System.Collections.Generic;
 
 public class Room : MonoBehaviour
 {
     [SerializeField, HideInInspector] private RoomTile[] roomTiles;
     [SerializeField, HideInInspector] private Vector2Int dimensions;
     [SerializeField, HideInInspector] private RoomTile.TileType[,] tileMap;
+    [SerializeField, HideInInspector] private RoomTile[] passages;
 
     public Vector2Int Dimensions { get { return dimensions; } }
     public RoomTile.TileType[,] TileMap { get { return tileMap; } }
+    public RoomTile[] Passages { get { return passages; } }
 
     private void OnValidate()
     {
@@ -17,6 +20,7 @@ public class Room : MonoBehaviour
         tileMap = new RoomTile.TileType[dimensions.x, dimensions.y];
 
         FillTileMap(roomTiles, ref tileMap);
+        passages = FindPassages(roomTiles);
 
         PerformSafetyChecks();
     }
@@ -52,6 +56,21 @@ public class Room : MonoBehaviour
 
             tileMap[coords.x, coords.y] = piece.Type;
         }
+    }
+
+    private static RoomTile[] FindPassages(RoomTile[] tiles)
+    {
+        List<RoomTile> passages = new List<RoomTile>();
+        for (var i = 0; i < tiles.Length; i++)
+        {
+            RoomTile tile = tiles[i];
+            if (tile.Type == RoomTile.TileType.Passage)
+            {
+                passages.Add(tile);
+            }
+        }
+
+        return passages.ToArray();
     }
 
     private void PerformSafetyChecks()

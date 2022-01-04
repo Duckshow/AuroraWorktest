@@ -1,6 +1,7 @@
 using UnityEngine;
 
 public enum CardinalDirection { None, North, NorthEast, East, SouthEast, South, SouthWest, West, NorthWest }
+public enum Axis2D { None, Horizontal, Vertical }
 
 public static class Utils
 {
@@ -41,5 +42,17 @@ public static class Utils
             default:
                 return Vector2Int.zero;
         }
+    }
+
+    public static T[] AddToEndOfArray<T>(T[] array, T objToAdd)
+    {
+        T[] newArray = new T[array.Length + 1];
+        for (int i = 0; i < array.Length; i++)
+        {
+            newArray[i] = array[i];
+        }
+
+        newArray[newArray.Length - 1] = objToAdd;
+        return newArray;
     }
 }
