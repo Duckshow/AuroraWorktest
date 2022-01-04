@@ -10,7 +10,7 @@ public class Room : MonoBehaviour
     private void OnValidate()
     {
         roomTiles = GetComponentsInChildren<RoomTile>();
-        dimensions = GetDimensions(roomTiles);
+        dimensions = FindDimensions(roomTiles);
         tileMap = new RoomTile.TileType[dimensions.x, dimensions.y];
 
         FillTileMap(roomTiles, ref tileMap);
@@ -18,7 +18,7 @@ public class Room : MonoBehaviour
         PerformSafetyChecks();
     }
 
-    private static Vector2Int GetDimensions(RoomTile[] tiles)
+    private static Vector2Int FindDimensions(RoomTile[] tiles)
     {
         Vector2Int dimensions = new Vector2Int();
 
