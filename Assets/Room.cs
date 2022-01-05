@@ -1,111 +1,100 @@
 using UnityEngine;
 using UnityEngine.Assertions;
-using System.Collections.Generic;
 
+[RequireComponent(typeof(BoxCollider))]
 public class Room : MonoBehaviour
 {
-    [SerializeField, HideInInspector] private RoomTile[] roomTiles;
-    [SerializeField, HideInInspector] private Vector2Int dimensions;
-    [SerializeField, HideInInspector] private RoomTile.TileType[,] tileMap;
-    [SerializeField, HideInInspector] private RoomTile[] passages;
+    public const int MIN_ROOM_WIDTH = 3;
+    public const int DEFAULT_ROOM_HEIGHT = 5;
 
-    public Vector2Int Dimensions { get { return dimensions; } }
-    public RoomTile.TileType[,] TileMap { get { return tileMap; } }
-    public RoomTile[] Passages { get { return passages; } }
+    [SerializeField, HideInInspector] private RoomTile[] roomTiles;
+    [SerializeField, HideInInspector] private Vector3Int dimensions;
+    [SerializeField, HideInInspector] private Passage[] passages;
+    [SerializeField, HideInInspector] private new BoxCollider collider;
+
+    public Vector3Int Dimensions { get { return dimensions; } }
+    public Passage[] Passages { get { return passages; } }
+    public BoxCollider Collider { get { return collider; } }
 
     private void OnValidate()
     {
         roomTiles = GetComponentsInChildren<RoomTile>();
         dimensions = FindDimensions(roomTiles);
-        tileMap = new RoomTile.TileType[dimensions.x, dimensions.y];
+        passages = GetComponentsInChildren<Passage>();
 
-        FillTileMap(roomTiles, ref tileMap);
-        passages = FindPassages(roomTiles);
+        Vector3Int boundaryTrim = new Vector3Int(2, 0, 2);
+        collider = GetComponent<BoxCollider>();
+        collider.size = Dimensions - boundaryTrim;
+        collider.center = (Collider.size + boundaryTrim) / 2f;
 
         PerformSafetyChecks();
     }
 
-    private static Vector2Int FindDimensions(RoomTile[] tiles)
+    private static Vector3Int FindDimensions(RoomTile[] tiles)
     {
-        Vector2Int dimensions = new Vector2Int();
+        Vector3Int dimensions = new Vector3Int();
 
         foreach (RoomTile piece in tiles)
         {
             Vector3 localPos = piece.transform.localPosition;
 
             if (localPos.x > dimensions.x) { dimensions.x = Mathf.FloorToInt(localPos.x); }
-            if (localPos.z > dimensions.y) { dimensions.y = Mathf.FloorToInt(localPos.z); }
+            if (localPos.z > dimensions.z) { dimensions.z = Mathf.FloorToInt(localPos.z); }
         }
 
         dimensions.x++;
-        dimensions.y++;
+        dimensions.z++;
 
+        dimensions.y = DEFAULT_ROOM_HEIGHT;
         return dimensions;
-    }
-
-    private static void FillTileMap(RoomTile[] tiles, ref RoomTile.TileType[,] tileMap)
-    {
-        foreach (RoomTile piece in tiles)
-        {
-            Vector2Int coords = piece.GetCoordinatesInRoom();
-
-            if (coords.x < 0 || coords.y < 0)
-            {
-                continue; // out-of-bounds coordinates will be flagged in PerformSafetyChecks(), but we have to get through this function first
-            }
-
-            tileMap[coords.x, coords.y] = piece.Type;
-        }
-    }
-
-    private static RoomTile[] FindPassages(RoomTile[] tiles)
-    {
-        List<RoomTile> passages = new List<RoomTile>();
-        for (var i = 0; i < tiles.Length; i++)
-        {
-            RoomTile tile = tiles[i];
-            if (tile.Type == RoomTile.TileType.Passage)
-            {
-                passages.Add(tile);
-            }
-        }
-
-        return passages.ToArray();
     }
 
     private void PerformSafetyChecks()
     {
-        for (int i = 0; i < roomTiles.Length; i++)
+        foreach (RoomTile tile in roomTiles)
         {
-            RoomTile tile = roomTiles[i];
-            Vector2Int coords = tile.GetCoordinatesInRoom();
+            Vector3 tileLocalPos = tile.transform.localPosition;
 
             Assert.IsFalse(
-                coords.x < 0 || coords.y < 0,
+                tileLocalPos.x < 0 || tileLocalPos.y < 0 || tileLocalPos.z < 0,
                 string.Format("{0} has a {1} with a local position below 0!", transform.name, tile.Type)
             );
-
-            RoomTile.TileType tileType = tileMap[coords.x, coords.y];
-            if (tileType != RoomTile.TileType.Passage) // TODO: if adding doors, add check for Door-type here
-            {
-                continue;
-            }
-
-            CardinalDirection direction = tile.GetCardinalDirection();
-            Vector2Int neighborCoords = coords + Utils.CardinalDirectionToVector(direction);
-
-            if (neighborCoords.x > 0 && neighborCoords.x < dimensions.x && neighborCoords.y > 0 && neighborCoords.y < dimensions.y)
-            {
-                Assert.IsTrue(
-                    tileMap[neighborCoords.x, neighborCoords.y] == RoomTile.TileType.None,
-                    string.Format("{0} has a Door/Passage that is not connected to empty space! This will break the level generator!", transform.name)
-                );
-            }
         }
 
-        Assert.IsTrue(
-            Utils.IsOdd(dimensions.x) && Utils.IsOdd(dimensions.y),
-            string.Format("{0} has dimensions {1}, but room dimensions have to be odd!", transform.name, dimensions)
-        );
+        foreach (Passage passage in Passages)
+        {
+            Vector3 passageLocalPos = passage.transform.localPosition;
+
+            bool isOnEdgeWest = passageLocalPos.x == 0;
+            bool isOnEdgeEast = passageLocalPos.x == Dimensions.x - 1;
+            bool isOnEdgeNorth = passageLocalPos.z == Dimensions.z - 1;
+            bool isOnEdgeSouth = passageLocalPos.z == 0;
+
+            bool isOnCornerSouthWest = isOnEdgeSouth && isOnEdgeWest;
+            bool isOnCornerSouthEast = isOnEdgeSouth && isOnEdgeEast;
+            bool isOnCornerNorthWest = isOnEdgeNorth && isOnEdgeWest;
+            bool isOnCornerNorthEast = isOnEdgeNorth && isOnEdgeEast;
+
+            Assert.IsFalse(isOnCornerNorthEast || isOnCornerSouthEast || isOnCornerSouthWest || isOnCornerNorthWest, string.Format("{0} has a Passage on a corner, which is not allowed!", transform.name));
+            Assert.IsTrue(isOnEdgeWest || isOnEdgeEast || isOnEdgeNorth || isOnEdgeSouth, string.Format("{0} has a Passage that is not on the boundary of the room, which is not allowed!", transform.name));
+
+            CardinalDirection dir = Utils.GetCardinalDirection(passage.GetPivot());
+
+            if (isOnEdgeWest) { Assert.AreEqual(CardinalDirection.West, dir, string.Format("{0} has a Passage on the Western edge, but it's facing {1}!", transform.name, dir)); }
+            if (isOnEdgeEast) { Assert.AreEqual(CardinalDirection.East, dir, string.Format("{0} has a Passage on the Eastern edge, but it's facing {1}!", transform.name, dir)); }
+            if (isOnEdgeNorth) { Assert.AreEqual(CardinalDirection.North, dir, string.Format("{0} has a Passage on the Northern edge, but it's facing {1}!", transform.name, dir)); }
+            if (isOnEdgeSouth) { Assert.AreEqual(CardinalDirection.South, dir, string.Format("{0} has a Passage on the Southern edge, but it's facing {1}!", transform.name, dir)); }
+
+
+            foreach (Passage otherPassage in Passages)
+            {
+                if (otherPassage == passage)
+                {
+                    continue;
+                }
+
+                Assert.IsFalse(passage.Collider.bounds.Intersects(otherPassage.Collider.bounds), string.Format("{0} has two Passages whose colliders are intersecting!", transform.name));
+            }
+        }
     }
 }

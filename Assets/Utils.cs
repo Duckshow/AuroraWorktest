@@ -1,58 +1,68 @@
 using UnityEngine;
+using System.Collections.Generic;
 
 public enum CardinalDirection { None, North, NorthEast, East, SouthEast, South, SouthWest, West, NorthWest }
 public enum Axis2D { None, Horizontal, Vertical }
 
 public static class Utils
 {
-    public static bool IsOdd(float x) { return x % 2 == 1; }
-    public static bool IsPowerOfTwo(int x) { return (x != 0) && ((x & (x - 1)) == 0); }
-    public static int RoundUpToPowerOfTwo(int x)
+    public static CardinalDirection GetCardinalDirection(Transform pivot, Space space = Space.World)
     {
-        x--;
-        x |= x >> 1;
-        x |= x >> 2;
-        x |= x >> 4;
-        x |= x >> 8;
-        x |= x >> 16;
-        x++;
-        return x;
+        float rot = space == Space.World ? pivot.eulerAngles.y : pivot.localEulerAngles.y;
+
+        if (rot < 22.5f) { return CardinalDirection.North; }
+        else if (rot < 67.5f) { return CardinalDirection.NorthEast; }
+        else if (rot < 112.5f) { return CardinalDirection.East; }
+        else if (rot < 157.5f) { return CardinalDirection.SouthEast; }
+        else if (rot < 202.5f) { return CardinalDirection.South; }
+        else if (rot < 247.5f) { return CardinalDirection.SouthWest; }
+        else if (rot < 292.5) { return CardinalDirection.West; }
+        else if (rot < 337.5f) { return CardinalDirection.NorthWest; }
+        else { return CardinalDirection.North; }
     }
 
-    public static Vector2Int CardinalDirectionToVector(CardinalDirection dir)
+    public static Vector3 CardinalDirectionToVector3(CardinalDirection direction)
     {
-        switch (dir)
+        switch (direction)
         {
-            case CardinalDirection.North:
-                return Vector2Int.up;
-            case CardinalDirection.NorthEast:
-                return Vector2Int.up + Vector2Int.right;
-            case CardinalDirection.East:
-                return Vector2Int.right;
-            case CardinalDirection.SouthEast:
-                return Vector2Int.down + Vector2Int.right;
-            case CardinalDirection.South:
-                return Vector2Int.down;
-            case CardinalDirection.SouthWest:
-                return Vector2Int.down + Vector2Int.left;
-            case CardinalDirection.West:
-                return Vector2Int.left;
-            case CardinalDirection.NorthWest:
-                return Vector2Int.up + Vector2Int.left;
-            default:
-                return Vector2Int.zero;
+            case CardinalDirection.North: { return new Vector3(0f, 0f, 1f); }
+            case CardinalDirection.NorthEast: { return new Vector3(1f, 0f, 1f); }
+            case CardinalDirection.East: { return new Vector3(1f, 0f, 0f); }
+            case CardinalDirection.SouthEast: { return new Vector3(1f, 0f, -1f); }
+            case CardinalDirection.South: { return new Vector3(0f, 0f, -1f); }
+            case CardinalDirection.SouthWest: { return new Vector3(-1f, 0f, -1f); }
+            case CardinalDirection.West: { return new Vector3(-1f, 0f, 0f); }
+            case CardinalDirection.NorthWest: { return new Vector3(-1f, 0f, 1f); }
+            default: throw new System.NotImplementedException();
         }
     }
 
-    public static T[] AddToEndOfArray<T>(T[] array, T objToAdd)
+    public static CardinalDirection GetOppositeDirection(CardinalDirection direction)
     {
-        T[] newArray = new T[array.Length + 1];
-        for (int i = 0; i < array.Length; i++)
+        switch (direction)
         {
-            newArray[i] = array[i];
+            case CardinalDirection.North: { return CardinalDirection.South; }
+            case CardinalDirection.NorthEast: { return CardinalDirection.SouthWest; }
+            case CardinalDirection.East: { return CardinalDirection.West; }
+            case CardinalDirection.SouthEast: { return CardinalDirection.NorthWest; }
+            case CardinalDirection.South: { return CardinalDirection.North; }
+            case CardinalDirection.SouthWest: { return CardinalDirection.NorthEast; }
+            case CardinalDirection.West: { return CardinalDirection.East; }
+            case CardinalDirection.NorthWest: { return CardinalDirection.SouthEast; }
+            default: throw new System.NotImplementedException();
         }
+    }
 
-        newArray[newArray.Length - 1] = objToAdd;
-        return newArray;
+    public static void Shuffle<T>(this IList<T> ts) // source: https://forum.unity.com/threads/clever-way-to-shuffle-a-list-t-in-one-line-of-c-code.241052/
+    {
+        var count = ts.Count;
+        var last = count - 1;
+        for (var i = 0; i < last; ++i)
+        {
+            var r = UnityEngine.Random.Range(i, count);
+            var tmp = ts[i];
+            ts[i] = ts[r];
+            ts[r] = tmp;
+        }
     }
 }

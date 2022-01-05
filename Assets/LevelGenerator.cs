@@ -2,382 +2,197 @@ using UnityEngine;
 using UnityEngine.AddressableAssets;
 using UnityEngine.Assertions;
 using System.Collections.Generic;
-using System.Linq;
 
 public class LevelGenerator : MonoBehaviour
 {
     private const string ROOM_PREFABS_ADDRESSABLE_LABEL = "Rooms";
-    private const int EXTRA_GRID_SPACE_ALONG_EDGES = 2; // this is to leave space for corridors all the way around rooms
-
-    private List<Room> allRooms = new List<Room>();
-
-    private RoomTile.TileType[,] grid;
-    private Vector2Int gridDimensions;
 
     [SerializeField] private int seed = 92985421;
+    [SerializeField] private int roomsOnPath;
 
-    struct PathfinderStep
-    {
-        public Vector2Int NewCoords { get; private set; }
-        public Vector2Int[] PreviousCoords { get; private set; }
-
-        public PathfinderStep(Vector2Int currentCoords)
-        {
-            NewCoords = currentCoords;
-            PreviousCoords = null;
-        }
-
-        public PathfinderStep(Vector2Int currentCoords, CardinalDirection stepDirection, Vector2Int[] previousCoords)
-        {
-            PreviousCoords = Utils.AddToEndOfArray<Vector2Int>(previousCoords, currentCoords);
-            NewCoords = currentCoords + Utils.CardinalDirectionToVector(stepDirection);
-        }
-    }
+    private List<Room> roomPrefabs = new List<Room>();
 
     private void Start()
     {
+        Random.InitState(seed);
         GenerateLevel();
     }
 
     private async void GenerateLevel()
     {
-        gridDimensions = new Vector2Int(128, 64); // TODO: make sure numbers are multiple of two
-        Assert.IsTrue(Utils.IsPowerOfTwo(gridDimensions.x) && Utils.IsPowerOfTwo(gridDimensions.y), string.Format("Level dimensions are {0}, but must be a power of two!", gridDimensions));
-
-        Vector2Int extraSpaceDimensions = new Vector2Int(EXTRA_GRID_SPACE_ALONG_EDGES * 2, EXTRA_GRID_SPACE_ALONG_EDGES * 2);
-        gridDimensions += extraSpaceDimensions;
-
-        grid = new RoomTile.TileType[gridDimensions.x, gridDimensions.y];
-
-        await Addressables.LoadAssetsAsync<GameObject>(ROOM_PREFABS_ADDRESSABLE_LABEL, (GameObject loadedPrefab) => { allRooms.Add(loadedPrefab.GetComponent<Room>()); }).Task;
+        await Addressables.LoadAssetsAsync<GameObject>(ROOM_PREFABS_ADDRESSABLE_LABEL, (GameObject loadedPrefab) => { roomPrefabs.Add(loadedPrefab.GetComponent<Room>()); }).Task;
 
         if (gameObject == null) // not sure if necessary, but some older forum posts mention that this *has* been a necessary precaution when using async-await
         {
             return;
         }
 
-        int maxRoomDimension = 0;
-        for (int i = 0; i < allRooms.Count; i++)
-        {
-            Vector2Int roomDimensions = allRooms[i].Dimensions;
-            maxRoomDimension = Mathf.Max(maxRoomDimension, roomDimensions.x);
-            maxRoomDimension = Mathf.Max(maxRoomDimension, roomDimensions.y);
-        }
-
-        int minBSPSize = Utils.RoundUpToPowerOfTwo(maxRoomDimension);
-
-        Debug.Log(minBSPSize);
-
-        BSPNode binarySpacePartition = new BSPNode(Vector2Int.zero, gridDimensions - extraSpaceDimensions, minBSPSize);
-        List<BSPNode> bottomNodes = new List<BSPNode>();
-        binarySpacePartition.FindAllBottomNodes(bottomNodes);
-
         List<Room> roomInstances = new List<Room>();
 
-        int passageCount = 0;
+        Room startRoom = SpawnRoom(roomPrefabs[Random.Range(0, roomPrefabs.Count)], roomInstances);
+        Debug.LogFormat("Added starting room! ({0})", startRoom.name);
 
-        BSPNode startNode = binarySpacePartition.FindBottomLeftMostNode();
-        AddRandomRoom(startNode, ref passageCount, roomInstances);
+        Room previousRoom = startRoom;
 
-        int pathRoomCount = 4;
-        for (int i = 0; i < pathRoomCount; i++)
+        List<Room> shufflableRoomPrefabs = new List<Room>(roomPrefabs);
+        for (int i = 0; i < roomsOnPath; i++)
         {
-            /*
-                TODO: 
-                When every room has been spawned, spawn additional rooms for every door without a possible connection
-            */
-
-            BSPNode node = BSPNode.FindRandomNodeWithoutRoom(bottomNodes);
-            AddRandomRoom(node, ref passageCount, roomInstances, minPassageCount: 2);
+            TryAddNewRoomToPath(ref previousRoom, shufflableRoomPrefabs, roomInstances, minPassageCount: 2);
+            Debug.LogFormat("Added room #{0}!", i);
         }
 
-        BSPNode endNode = binarySpacePartition.FindUpperRighttMostNode();
-        AddRandomRoom(endNode, ref passageCount, roomInstances);
+        TryAddNewRoomToPath(ref previousRoom, shufflableRoomPrefabs, roomInstances);
+        Debug.LogFormat("Added end room! ({0})", previousRoom.name);
 
-        for (int i = 0; i < roomInstances.Count - 1; i++)
+        /*
+        5. Find all remaining doors
+        6. Loop over found doors
+            6.1. Loop X times, decreasing the spawn chance for doors every time
+                6.1.1. Spawn a random room
+                6.1.2. Pick a random door on the current room and a random door on the new room
+                6.1.3. Rotate the new room so the doors are facing eachother
+                6.1.4. Position the new room so that the doors are overlapping
+                6.1.5. Check for collision with any spawned room
+                    6.1.5.1. If true, try again with a new rotation
+                        6.1.5.1.1. If all rotations fail, set the room as temporarily ignored and go back to 2.1.
+                            6.1.5.1.1.1. If all prefabs fail, throw an exception.
+        */
+    }
+
+    private static bool TryAddNewRoomToPath(ref Room previousRoom, List<Room> shuffledRoomPrefabs, List<Room> spawnedRooms, int minPassageCount = 1)
+    {
+        shuffledRoomPrefabs.Shuffle();
+
+        foreach (Room newRoomPrefab in shuffledRoomPrefabs)
         {
-            Room roomInstance = roomInstances[i];
-            Room nextRoomInstance = roomInstances[i + 1];
-
-            float closestPassageDistance = float.MaxValue;
-            RoomTile closestPassage1 = null;
-            RoomTile closestPassage2 = null;
-
-            for (int pIndex1 = 0; pIndex1 < roomInstance.Passages.Length; pIndex1++)
+            if (newRoomPrefab.Passages.Length < minPassageCount)
             {
-                RoomTile roomPassage = roomInstance.Passages[pIndex1];
-                Vector3 roomPassagePos = roomInstance.transform.localPosition + roomPassage.transform.localPosition;
+                continue;
+            }
 
-                for (int pIndex2 = 0; pIndex2 < nextRoomInstance.Passages.Length; pIndex2++)
+            Room newRoom = SpawnRoom(newRoomPrefab, spawnedRooms);
+            Debug.Log("Trying to spawn " + newRoom.name);
+
+            if (TryConnectRooms(previousRoom, newRoom, spawnedRooms))
+            {
+                Debug.Log("Success!");
+                previousRoom = newRoom;
+                return true;
+            }
+
+            DestroyRoom(newRoom, spawnedRooms);
+        }
+
+        throw new System.Exception(string.Format("LevelGenerator failed in finding a room able to attach anywhere on {0}!", previousRoom.name));
+    }
+
+    private static Room SpawnRoom(Room roomPrefab, List<Room> roomInstances)
+    {
+
+        // TODO: would be safer to use Addressables.Instantiate, memory-management wise - but we have to remove LoadAssetsAsync then, if that's possible 
+
+        Room roomInstance = Instantiate(roomPrefab.gameObject, Vector3.zero, Quaternion.identity).GetComponent<Room>();
+        roomInstances.Add(roomInstance);
+
+        return roomInstance;
+    }
+
+    private static void DestroyRoom(Room roomInstance, List<Room> roomInstances)
+    {
+        roomInstances.Remove(roomInstance);
+        //Addressables.ReleaseInstance(roomInstance.gameObject);
+        Destroy(roomInstance.gameObject);
+    }
+
+    private static bool TryConnectRooms(Room oldRoom, Room newRoom, List<Room> spawnedRooms)
+    {
+        List<RoomTile> oldRoomPassages = new List<RoomTile>(oldRoom.Passages);
+        oldRoomPassages.Shuffle();
+
+        List<RoomTile> newRoomPassages = new List<RoomTile>(newRoom.Passages);
+        newRoomPassages.Shuffle();
+
+        foreach (RoomTile oldRoomPassage in oldRoomPassages)
+        {
+            foreach (RoomTile newRoomPassage in newRoomPassages)
+            {
+                CardinalDirection oldPassageDirection = Utils.GetCardinalDirection(oldRoomPassage.GetPivot());
+                CardinalDirection newPassageDirection = Utils.GetCardinalDirection(newRoomPassage.GetPivot());
+                CardinalDirection desiredDirection = Utils.GetOppositeDirection(oldPassageDirection);
+
+                int attemptsNeeded = System.Enum.GetValues(typeof(CardinalDirection)).Length;
+                for (int attemptIndex = 0; attemptIndex < attemptsNeeded; attemptIndex++)
                 {
-                    RoomTile nextRoomPassage = nextRoomInstance.Passages[pIndex2];
-                    Vector3 nextRoomPassagePos = nextRoomInstance.transform.localPosition + nextRoomPassage.transform.localPosition;
-
-                    float distance = (nextRoomPassagePos - roomPassagePos).sqrMagnitude;
-                    if (distance < closestPassageDistance)
+                    if (Utils.GetCardinalDirection(newRoomPassage.GetPivot()) == desiredDirection)
                     {
-                        closestPassageDistance = distance;
-                        closestPassage1 = roomPassage;
-                        closestPassage2 = nextRoomPassage;
+                        break;
+                    }
+
+                    if (attemptIndex == attemptsNeeded - 1)
+                    {
+                        throw new System.Exception(string.Format("{0} failed to find the correct rotation, from {1} to {2}!", newRoom.name, newPassageDirection, desiredDirection));
+                    }
+
+                    newRoom.transform.Rotate(0f, 45f, 0f, Space.World); // TODO: calculate instead how many degrees are needed to get from one CardinalDirection to another
+                }
+
+                Vector3 newPassageOffset = newRoomPassage.transform.position - newRoom.transform.position;
+                newRoom.transform.position = oldRoomPassage.transform.position - newPassageOffset;
+
+                if (!IsRoomCollidingWithAnyOther(newRoom, spawnedRooms, roomToIgnore: oldRoom))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsRoomCollidingWithAnyOther(Room room, List<Room> roomInstances, Room roomToIgnore)
+    {
+        foreach (Room otherRoom in roomInstances)
+        {
+            if (otherRoom == room)
+            {
+                continue;
+            }
+
+            if (otherRoom == roomToIgnore)
+            {
+                continue;
+            }
+
+            if (room.Collider.bounds.Intersects(otherRoom.Collider.bounds))
+            {
+                return true;
+            }
+
+            foreach (Passage passage in otherRoom.Passages)
+            {
+                if (room.Collider.bounds.Intersects(passage.Collider.bounds))
+                {
+                    return true;
+                }
+            }
+
+            foreach (Passage passage in room.Passages)
+            {
+                if (passage.Collider.bounds.Intersects(otherRoom.Collider.bounds))
+                {
+                    return true;
+                }
+
+                foreach (Passage otherRoomPassage in otherRoom.Passages)
+                {
+                    if (passage.Collider.bounds.Intersects(otherRoomPassage.Collider.bounds))
+                    {
+                        return true;
                     }
                 }
             }
-
-            Vector3 passagePos1 = roomInstance.transform.localPosition + closestPassage1.transform.localPosition;
-            Vector3 passagePos2 = nextRoomInstance.transform.localPosition + closestPassage2.transform.localPosition;
-
-            Vector2Int startCoords = new Vector2Int(Mathf.FloorToInt(passagePos1.x), Mathf.FloorToInt(passagePos1.z)) + Utils.CardinalDirectionToVector(closestPassage1.GetCardinalDirection());
-            Vector2Int endCoords = new Vector2Int(Mathf.FloorToInt(passagePos2.x), Mathf.FloorToInt(passagePos2.z)) + Utils.CardinalDirectionToVector(closestPassage2.GetCardinalDirection());
-
-            Vector2Int[] path;
-
-            Queue<PathfinderStep> stepsToEvaluate = new Queue<PathfinderStep>();
-            stepsToEvaluate.Enqueue(new PathfinderStep(startCoords));
-
-            while (stepsToEvaluate.Count > 0)
-            {
-                PathfinderStep step = stepsToEvaluate.Dequeue();
-
-                if (step.NewCoords == endCoords)
-                {
-                    path = Utils.AddToEndOfArray<Vector2Int>(step.PreviousCoords, step.NewCoords);
-                    break;
-                }
-
-                RoomTile.TileType type = grid[step.NewCoords.x, step.NewCoords.y];
-                if (type != RoomTile.TileType.None)
-                {
-                    continue;
-                }
-
-                float distanceFromNorth = (endCoords - (step.NewCoords + new Vector2Int(0, 1))).sqrMagnitude;
-                float distanceFromEast = (endCoords - (step.NewCoords + new Vector2Int(1, 0))).sqrMagnitude;
-                float distanceFromSouth = (endCoords - (step.NewCoords + new Vector2Int(0, -1))).sqrMagnitude;
-                float distanceFromWest = (endCoords - (step.NewCoords + new Vector2Int(-1, 0))).sqrMagnitude;
-
-                // TODO: I think I might have to start over
-            }
-
-            // find the closest path between the doors
-            // mark the path as floor
-            // mark the doors as connected
-
         }
 
-
-
-
-
-        for (int y = 0; y < gridDimensions.y; y++)
-        {
-            for (int x = 0; x < gridDimensions.x; x++)
-            {
-                RoomTile.TileType tileType = grid[x, y];
-                if (tileType == RoomTile.TileType.None)
-                {
-                    grid[x, y] = RoomTile.TileType.Wall;
-                }
-                else
-
-
-
-                    RoomTile.TileType tileTypeNorth = grid[x, y + 1];
-                RoomTile.TileType tileTypeEast = grid[x + 1, y];
-                RoomTile.TileType tileSouth = grid[x, y - 1];
-                RoomTile.TileType tileWest = grid[x - 1, y];
-            }
-        }
-
-        // 4. Iterate over grid
-        //     4.1. If tile is empty, run a maze algorithm from that point
-        // 5. Find every non-room tile touching 3 walls and loop over them
-        //     5.1. If the tile is neighboring a door, or is not touching 3 walls, skip it
-        //     5.2 Else, remove the tile and add its free neighbor to the loop
-        // 6. Loop over grid and instantiate the corresponding prefabs to the scene
-
-
-        Texture2D texture = new Texture2D(gridDimensions.x, gridDimensions.y);
-
-        for (int i = 0; i < bottomNodes.Count; i++)
-        {
-            BSPNode node = bottomNodes[i];
-            Color[] colors = new Color[] {
-                Color.red,
-                Color.yellow,
-                Color.green,
-                Color.cyan,
-                Color.blue,
-                Color.magenta
-            };
-
-            Color color = colors[Random.Range(0, colors.Length)];
-
-            for (int y = 0; y < node.Dimensions.y; y++)
-            {
-                for (int x = 0; x < node.Dimensions.x; x++)
-                {
-                    //Debug.Log((node.Pos.x + x) + ", " + (node.Pos.y + y));
-                    texture.SetPixel(node.Pos.x + x + EXTRA_GRID_SPACE_ALONG_EDGES, node.Pos.y + y + EXTRA_GRID_SPACE_ALONG_EDGES, color);
-                }
-            }
-        }
-
-        for (int y = 0; y < gridDimensions.y; y++)
-        {
-            for (int x = 0; x < gridDimensions.x; x++)
-            {
-                RoomTile.TileType tileType = grid[x, y];
-
-                if (tileType == RoomTile.TileType.None)
-                {
-                    continue;
-                }
-
-                Color color = Color.clear;
-                switch (grid[x, y])
-                {
-                    case RoomTile.TileType.Floor: { color = Color.white; break; }
-                    case RoomTile.TileType.Wall: { color = Color.grey; break; }
-                    case RoomTile.TileType.Passage: { color = Color.red; break; }
-                }
-
-                texture.SetPixel(x, y, color);
-            }
-        }
-
-        texture.filterMode = FilterMode.Point;
-        texture.Apply();
-        GetComponent<MeshRenderer>().material.mainTexture = texture;
-        transform.localScale = new Vector3(gridDimensions.x / 10f, gridDimensions.y / 10f, 1f);
-    }
-
-    private void AddRandomRoom(BSPNode node, ref int spawnedPassageCount, List<Room> roomInstances, int minPassageCount = 1)
-    {
-        Room room;
-        if (minPassageCount < 2)
-        {
-            room = allRooms[Random.Range(0, allRooms.Count)];
-        }
-        else
-        {
-            IEnumerable<Room> roomQuery = allRooms.Where((Room someRoom) => someRoom.Passages.Length >= 2);
-            roomQuery.OrderBy(x => Random.Range(0, allRooms.Count));
-            room = roomQuery.First();
-        }
-
-        spawnedPassageCount += room.Passages.Length;
-
-        Room roomInstance = Instantiate(room.gameObject, transform).GetComponent<Room>();
-        roomInstances.Add(roomInstance);
-        roomInstance.transform.localPosition = new Vector3(node.Pos.x, 0f, node.Pos.y);
-
-
-        Vector2Int coords = node.Pos;
-        for (int y = 0; y < room.Dimensions.y; y++)
-        {
-            for (int x = 0; x < room.Dimensions.x; x++)
-            {
-                // TODO: randomize rotation
-
-                grid[coords.x + x + EXTRA_GRID_SPACE_ALONG_EDGES, coords.y + y + EXTRA_GRID_SPACE_ALONG_EDGES] = room.TileMap[x, y];
-            }
-        }
-
-        node.HasBeenAssignedRoom = true;
-    }
-
-    private class BSPNode
-    {
-        public Vector2Int Pos { get; private set; }
-        public Vector2Int Dimensions { get; private set; }
-        public bool HasBeenAssignedRoom;
-
-        public bool IsBottomNode { get; private set; }
-        public BSPNode Child1 { get; private set; }
-        public BSPNode Child2 { get; private set; }
-
-        public BSPNode(Vector2Int pos, Vector2Int dimensions, int minSize)
-        {
-            Assert.IsTrue(Utils.IsPowerOfTwo(minSize), string.Format("BSPNode's MinSize is {0}, but has to be a power of two!", minSize));
-
-            Pos = pos;
-            Dimensions = dimensions;
-            HasBeenAssignedRoom = false;
-            IsBottomNode = true;
-
-            Axis2D splitAxis = Axis2D.None;
-            if (dimensions.x >= minSize * 2) { splitAxis = Axis2D.Vertical; }
-            else if (dimensions.y >= minSize * 2) { splitAxis = Axis2D.Horizontal; }
-            else { return; }
-
-            Vector2Int childPos1 = pos;
-            Vector2Int childPos2 = pos;
-            Vector2Int childDimensions1 = dimensions;
-            Vector2Int childDimensions2 = dimensions;
-
-            if (splitAxis == Axis2D.Vertical)
-            {
-                childDimensions1.x /= 2;
-                childDimensions2.x /= 2;
-
-                childPos2.x += childDimensions1.x;
-            }
-            else
-            {
-                childDimensions1.y /= 2;
-                childDimensions2.y /= 2;
-
-                childPos2.y += childDimensions1.y;
-            }
-
-            IsBottomNode = false;
-            Child1 = new BSPNode(childPos1, childDimensions1, minSize);
-            Child2 = new BSPNode(childPos2, childDimensions2, minSize);
-        }
-
-        public BSPNode FindBottomLeftMostNode()
-        {
-            if (IsBottomNode)
-            {
-                return this;
-            }
-
-            BSPNode bottomLeftChild = (Child1.Pos.x < Child2.Pos.x || Child1.Pos.y < Child2.Pos.y) ? Child1 : Child2;
-            return bottomLeftChild.FindBottomLeftMostNode();
-        }
-
-        public BSPNode FindUpperRighttMostNode()
-        {
-            if (IsBottomNode)
-            {
-                return this;
-            }
-
-            BSPNode upperRightChild = (Child2.Pos.x > Child1.Pos.x || Child2.Pos.y > Child1.Pos.y) ? Child2 : Child1;
-            return upperRightChild.FindUpperRighttMostNode();
-        }
-
-        public void FindAllBottomNodes(List<BSPNode> bottomNodes)
-        {
-            if (IsBottomNode)
-            {
-                bottomNodes.Add(this);
-                return;
-            }
-
-            Child1.FindAllBottomNodes(bottomNodes);
-            Child2.FindAllBottomNodes(bottomNodes);
-        }
-
-        public static BSPNode FindRandomNodeWithoutRoom(List<BSPNode> bottomNodes)
-        {
-            BSPNode node = null;
-            do
-            {
-                node = bottomNodes[Random.Range(0, bottomNodes.Count)];
-            } while (node == null || node.HasBeenAssignedRoom);
-
-            return node;
-        }
+        return false;
     }
 }

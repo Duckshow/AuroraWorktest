@@ -3,7 +3,7 @@ using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEditor.Experimental.SceneManagement;
 
-[CustomEditor(typeof(RoomTile))]
+[CustomEditor(typeof(RoomTile), editorForChildClasses: true)]
 public class RoomTileEditor : Editor
 {
     public override void OnInspectorGUI()
@@ -13,21 +13,28 @@ public class RoomTileEditor : Editor
         GUILayout.Space(10f);
 
         RoomTile roomTile = (RoomTile)target;
-        EditorGUILayout.LabelField("Facing: " + roomTile.GetCardinalDirection().ToString());
+        EditorGUILayout.LabelField("Facing: " + Utils.GetCardinalDirection(roomTile.GetPivot()).ToString());
 
         if (GUILayout.Button("Rotate CW")) { RotateTile(roomTile, 45f); }
         if (GUILayout.Button("Rotate CCW")) { RotateTile(roomTile, -45f); }
 
         RoundAndClampLocalPosition(roomTile);
+
+        Passage passage = roomTile as Passage;
+        if (passage != null)
+        {
+            passage.UpdateCollider();
+        }
     }
 
     private static void RoundAndClampLocalPosition(RoomTile roomTile)
     {
-        Vector2Int coords = roomTile.GetCoordinatesInRoom();
+        Vector3 localPos = roomTile.transform.localPosition;
+
         roomTile.transform.localPosition = new Vector3(
-            Mathf.Max(0, coords.x),
-            0,
-            Mathf.Max(0, coords.y)
+            Mathf.Max(0f, Mathf.Floor(localPos.x)),
+            Mathf.Max(0f, Mathf.Floor(localPos.y)),
+            Mathf.Max(0f, Mathf.Floor(localPos.z))
         );
     }
 
