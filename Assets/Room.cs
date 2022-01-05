@@ -25,7 +25,7 @@ public class Room : MonoBehaviour
         Vector3Int boundaryTrim = new Vector3Int(2, 0, 2);
         collider = GetComponent<BoxCollider>();
         collider.size = Dimensions - boundaryTrim;
-        collider.center = (Collider.size + boundaryTrim) / 2f;
+        collider.center = Collider.size / 2f + new Vector3(0.5f, 0f, 0.5f);
 
         PerformSafetyChecks();
     }
@@ -78,7 +78,7 @@ public class Room : MonoBehaviour
             Assert.IsFalse(isOnCornerNorthEast || isOnCornerSouthEast || isOnCornerSouthWest || isOnCornerNorthWest, string.Format("{0} has a Passage on a corner, which is not allowed!", transform.name));
             Assert.IsTrue(isOnEdgeWest || isOnEdgeEast || isOnEdgeNorth || isOnEdgeSouth, string.Format("{0} has a Passage that is not on the boundary of the room, which is not allowed!", transform.name));
 
-            CardinalDirection dir = Utils.GetCardinalDirection(passage.GetPivot());
+            CardinalDirection dir = Utils.GetCardinalDirection(passage.transform);
 
             if (isOnEdgeWest) { Assert.AreEqual(CardinalDirection.West, dir, string.Format("{0} has a Passage on the Western edge, but it's facing {1}!", transform.name, dir)); }
             if (isOnEdgeEast) { Assert.AreEqual(CardinalDirection.East, dir, string.Format("{0} has a Passage on the Eastern edge, but it's facing {1}!", transform.name, dir)); }

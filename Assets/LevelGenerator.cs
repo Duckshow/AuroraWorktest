@@ -116,14 +116,14 @@ public class LevelGenerator : MonoBehaviour
         {
             foreach (RoomTile newRoomPassage in newRoomPassages)
             {
-                CardinalDirection oldPassageDirection = Utils.GetCardinalDirection(oldRoomPassage.GetPivot());
-                CardinalDirection newPassageDirection = Utils.GetCardinalDirection(newRoomPassage.GetPivot());
+                CardinalDirection oldPassageDirection = Utils.GetCardinalDirection(oldRoomPassage.transform);
+                CardinalDirection newPassageDirection = Utils.GetCardinalDirection(newRoomPassage.transform);
                 CardinalDirection desiredDirection = Utils.GetOppositeDirection(oldPassageDirection);
 
                 int attemptsNeeded = System.Enum.GetValues(typeof(CardinalDirection)).Length;
                 for (int attemptIndex = 0; attemptIndex < attemptsNeeded; attemptIndex++)
                 {
-                    if (Utils.GetCardinalDirection(newRoomPassage.GetPivot()) == desiredDirection)
+                    if (Utils.GetCardinalDirection(newRoomPassage.transform) == desiredDirection)
                     {
                         break;
                     }

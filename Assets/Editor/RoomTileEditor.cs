@@ -13,7 +13,7 @@ public class RoomTileEditor : Editor
         GUILayout.Space(10f);
 
         RoomTile roomTile = (RoomTile)target;
-        EditorGUILayout.LabelField("Facing: " + Utils.GetCardinalDirection(roomTile.GetPivot()).ToString());
+        EditorGUILayout.LabelField("Facing: " + Utils.GetCardinalDirection(roomTile.transform).ToString());
 
         if (GUILayout.Button("Rotate CW")) { RotateTile(roomTile, 45f); }
         if (GUILayout.Button("Rotate CCW")) { RotateTile(roomTile, -45f); }
@@ -40,7 +40,7 @@ public class RoomTileEditor : Editor
 
     private static void RotateTile(RoomTile roomTile, float degrees)
     {
-        roomTile.GetPivot().Rotate(new Vector3(0f, degrees, 0f));
+        roomTile.transform.Rotate(new Vector3(0f, degrees, 0f));
         MarkPrefabDirty();
     }
 

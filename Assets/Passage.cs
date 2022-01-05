@@ -22,9 +22,7 @@ public class Passage : RoomTile
             collider = GetComponent<BoxCollider>();
         }
 
-        CardinalDirection facingDirection = Utils.GetCardinalDirection(GetPivot(), Space.Self);
-
         collider.size = new Vector3Int(Room.MIN_ROOM_WIDTH, Room.DEFAULT_ROOM_HEIGHT, Room.MIN_ROOM_WIDTH);
-        collider.center = GetPivot().localPosition + Utils.CardinalDirectionToVector3(facingDirection);
+        collider.center = new Vector3(0f, collider.size.y / 2, collider.size.z / 2);
     }
 }
