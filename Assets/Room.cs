@@ -22,10 +22,12 @@ public class Room : MonoBehaviour
         dimensions = FindDimensions(roomTiles);
         passages = GetComponentsInChildren<Passage>();
 
-        Vector3Int boundaryTrim = new Vector3Int(2, 0, 2);
+        const float TOLERANCE = 0.01f;
+
+        Vector3 boundaryTrim = new Vector3(1f + TOLERANCE, 0f, 1f + TOLERANCE);
         collider = GetComponent<BoxCollider>();
         collider.size = Dimensions - boundaryTrim;
-        collider.center = Collider.size / 2f + new Vector3(0.5f, 0f, 0.5f);
+        collider.center = (collider.size + new Vector3(TOLERANCE, 0f, TOLERANCE)) / 2f;
 
         PerformSafetyChecks();
     }
