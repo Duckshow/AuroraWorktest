@@ -47,6 +47,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   type: 3
   collider: {fileID: 878993276137019261}
+  HasConnection: 0
 --- !u!65 &878993276137019261
 BoxCollider:
   m_ObjectHideFlags: 0
@@ -55,11 +56,11 @@ BoxCollider:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 2439410984515580061}
   m_Material: {fileID: 0}
-  m_IsTrigger: 0
+  m_IsTrigger: 1
   m_Enabled: 1
   serializedVersion: 2
-  m_Size: {x: 3, y: 5, z: 3}
-  m_Center: {x: 0.5, y: 0, z: 1.5}
+  m_Size: {x: 2.97, y: 4.95, z: 2.97}
+  m_Center: {x: 0, y: 2.475, z: 1.485}
 --- !u!1 &5745382276546441410
 GameObject:
   m_ObjectHideFlags: 0
