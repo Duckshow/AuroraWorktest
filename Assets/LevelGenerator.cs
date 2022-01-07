@@ -1,110 +1,164 @@
 using UnityEngine;
 using UnityEngine.AddressableAssets;
-using UnityEngine.Assertions;
 using System.Collections.Generic;
+using System.Collections;
+using System.Linq;
 
 public class LevelGenerator : MonoBehaviour
 {
     private const string ROOM_PREFABS_ADDRESSABLE_LABEL = "Rooms";
+    private const int MAX_PASSAGES_ALLOWED_AT_START = 1;
+    private const int MAX_PASSAGES_ALLOWED_AT_END = 1;
 
+    [SerializeField] private bool useRandomSeed;
     [SerializeField] private int seed = 92985421;
+
+    [Space]
     [SerializeField] private int roomsOnPath;
+    [SerializeField] private int maxBranchDepth = 3;
+
+    [Space]
+    [SerializeField] private Transform playerInstance;
 
     private List<Room> roomPrefabs = new List<Room>();
 
-    private void Start()
+    private void OnValidate()
     {
-        Random.InitState(seed);
-        GenerateLevel();
+        roomsOnPath = Mathf.Max(1, roomsOnPath);
+        maxBranchDepth = Mathf.Max(1, maxBranchDepth);
     }
 
-    private async void GenerateLevel()
+    private void Start()
     {
-        await Addressables.LoadAssetsAsync<GameObject>(ROOM_PREFABS_ADDRESSABLE_LABEL, (GameObject loadedPrefab) => { roomPrefabs.Add(loadedPrefab.GetComponent<Room>()); }).Task;
+        if (useRandomSeed)
+        {
+            Random.InitState(seed);
+        }
+
+        StartCoroutine(GenerateLevel());
+    }
+
+    private IEnumerator GenerateLevel()
+    {
+        yield return Addressables.LoadAssetsAsync<GameObject>(ROOM_PREFABS_ADDRESSABLE_LABEL, (GameObject loadedPrefab) => { roomPrefabs.Add(loadedPrefab.GetComponent<Room>()); }).Task;
 
         if (gameObject == null) // not sure if necessary, but some older forum posts mention that this *has* been a necessary precaution when using async-await
         {
-            return;
+            yield break;
         }
 
-        List<Room> roomInstances = new List<Room>();
+        List<Room> spawnedRooms = new List<Room>();
+        List<Room> possibleStartRooms = GetPossibleStartRooms();
+        List<Room> possiblePathRooms = GetPossiblePathRooms();
+        List<Room> possibleEndRooms = GetPossibleEndRooms();
 
-        Room startRoom = SpawnRoom(roomPrefabs[Random.Range(0, roomPrefabs.Count)], roomInstances);
-        Debug.LogFormat("Added starting room! ({0})", startRoom.name);
+        Room startRoom = SpawnRoom(namePrefix: "Start: ", possibleStartRooms[Random.Range(0, possibleStartRooms.Count)], spawnedRooms);
+        Room lastSpawnedRoom = startRoom;
 
-        Room previousRoom = startRoom;
+        if (playerInstance != null)
+        {
+            playerInstance.transform.position = startRoom.transform.position + startRoom.Collider.center + new Vector3(0, 5, 0); // TODO: replace this with an actual spawn point
+        }
 
-        List<Room> shufflableRoomPrefabs = new List<Room>(roomPrefabs);
         for (int i = 0; i < roomsOnPath; i++)
         {
-            TryAddNewRoomToPath(ref previousRoom, shufflableRoomPrefabs, roomInstances, minPassageCount: 2);
-            Debug.LogFormat("Added room #{0}!", i);
+            yield return TryAddNewRoomToSpawnedRoom(namePrefix: string.Format("Path #{0}: ", i), lastSpawnedRoom, possiblePathRooms, spawnedRooms, onFinished: (Room addedRoom) => { lastSpawnedRoom = addedRoom; });
         }
 
-        TryAddNewRoomToPath(ref previousRoom, shufflableRoomPrefabs, roomInstances);
-        Debug.LogFormat("Added end room! ({0})", previousRoom.name);
+        yield return TryAddNewRoomToSpawnedRoom(namePrefix: "End: ", lastSpawnedRoom, possibleEndRooms, spawnedRooms);
 
-        /*
-        5. Find all remaining doors
-        6. Loop over found doors
-            6.1. Loop X times, decreasing the spawn chance for doors every time
-                6.1.1. Spawn a random room
-                6.1.2. Pick a random door on the current room and a random door on the new room
-                6.1.3. Rotate the new room so the doors are facing eachother
-                6.1.4. Position the new room so that the doors are overlapping
-                6.1.5. Check for collision with any spawned room
-                    6.1.5.1. If true, try again with a new rotation
-                        6.1.5.1.1. If all rotations fail, set the room as temporarily ignored and go back to 2.1.
-                            6.1.5.1.1.1. If all prefabs fail, throw an exception.
-        */
-    }
-
-    private static bool TryAddNewRoomToPath(ref Room previousRoom, List<Room> shuffledRoomPrefabs, List<Room> spawnedRooms, int minPassageCount = 1)
-    {
-        shuffledRoomPrefabs.Shuffle();
-
-        foreach (Room newRoomPrefab in shuffledRoomPrefabs)
+        int previousSpawnedRoomCount = 0;
+        int newlySpawnedRoomCount = 0;
+        for (int depthIndex = 0; depthIndex < maxBranchDepth; depthIndex++)
         {
-            if (newRoomPrefab.Passages.Length < minPassageCount)
+            List<Room> possibleBranchRooms = GetPossibleBranchRooms(depthIndex);
+
+            previousSpawnedRoomCount = newlySpawnedRoomCount;
+            newlySpawnedRoomCount = spawnedRooms.Count - previousSpawnedRoomCount;
+
+            for (int newRoomIndex = 0; newRoomIndex < newlySpawnedRoomCount; newRoomIndex++)
             {
-                continue;
+                Room room = spawnedRooms[previousSpawnedRoomCount + newRoomIndex];
+
+                while (room.HasUnconnectedPassages())
+                {
+                    yield return TryAddNewRoomToSpawnedRoom(namePrefix: string.Format("Branch (Depth: {0}): ", depthIndex + 1), room, possibleBranchRooms, spawnedRooms);
+                }
             }
-
-            Room newRoom = SpawnRoom(newRoomPrefab, spawnedRooms);
-            Debug.Log("Trying to spawn " + newRoom.name);
-
-            if (TryConnectRooms(previousRoom, newRoom, spawnedRooms))
-            {
-                Debug.Log("Success!");
-                previousRoom = newRoom;
-                return true;
-            }
-
-            DestroyRoom(newRoom, spawnedRooms);
         }
-
-        throw new System.Exception(string.Format("LevelGenerator failed in finding a room able to attach anywhere on {0}!", previousRoom.name));
     }
 
-    private static Room SpawnRoom(Room roomPrefab, List<Room> roomInstances)
+    private List<Room> GetPossibleStartRooms()
     {
+        return roomPrefabs.Where(x => x.Passages.Length == MAX_PASSAGES_ALLOWED_AT_START).ToList();
+    }
 
+    private List<Room> GetPossiblePathRooms()
+    {
+        return roomPrefabs.Where(x => x.Passages.Length >= 2).ToList();
+    }
+
+    private List<Room> GetPossibleEndRooms()
+    {
+        return roomPrefabs.Where(x => x.Passages.Length == MAX_PASSAGES_ALLOWED_AT_END).ToList();
+    }
+
+    private List<Room> GetPossibleBranchRooms(int depth)
+    {
+        if (depth == maxBranchDepth - 1)
+        {
+            return roomPrefabs.Where(x => x.Passages.Length == 1).ToList(); // TODO: would be nice if the amount of doors randomly tapered off instead
+        }
+
+        return roomPrefabs;
+    }
+
+    private static IEnumerator TryAddNewRoomToSpawnedRoom(string namePrefix, Room oldRoom, List<Room> prefabsToChooseFrom, List<Room> allSpawnedRooms, System.Action<Room> onFinished = null)
+    {
+        prefabsToChooseFrom.Shuffle();
+
+        foreach (Room newRoomPrefab in prefabsToChooseFrom)
+        {
+            Room newRoom = SpawnRoom(namePrefix, newRoomPrefab, allSpawnedRooms);
+
+            bool success = false;
+            yield return TryConnectRooms(oldRoom, newRoom, allSpawnedRooms, (bool result) => { success = result; });
+
+            if (success)
+            {
+                if (onFinished != null)
+                {
+                    onFinished(newRoom);
+                }
+
+                yield break;
+            }
+
+            DestroyRoom(newRoom, allSpawnedRooms);
+        }
+
+        throw new System.Exception(string.Format("LevelGenerator failed in finding a room able to attach anywhere on {0}!", oldRoom.name));
+    }
+
+    private static Room SpawnRoom(string namePrefix, Room roomPrefab, List<Room> spawnedRooms)
+    {
         // TODO: would be safer to use Addressables.Instantiate, memory-management wise - but we have to remove LoadAssetsAsync then, if that's possible 
 
         Room roomInstance = Instantiate(roomPrefab.gameObject, Vector3.zero, Quaternion.identity).GetComponent<Room>();
-        roomInstances.Add(roomInstance);
+        roomInstance.name = namePrefix + roomInstance.name;
+
+        spawnedRooms.Add(roomInstance);
 
         return roomInstance;
     }
 
-    private static void DestroyRoom(Room roomInstance, List<Room> roomInstances)
+    private static void DestroyRoom(Room roomInstance, List<Room> spawnedRooms)
     {
-        roomInstances.Remove(roomInstance);
-        //Addressables.ReleaseInstance(roomInstance.gameObject);
+        spawnedRooms.Remove(roomInstance);
         Destroy(roomInstance.gameObject);
     }
 
-    private static bool TryConnectRooms(Room oldRoom, Room newRoom, List<Room> spawnedRooms)
+    private static IEnumerator TryConnectRooms(Room oldRoom, Room newRoom, List<Room> spawnedRooms, System.Action<bool> onFinished)
     {
         List<RoomTile> oldRoomPassages = new List<RoomTile>(oldRoom.Passages);
         oldRoomPassages.Shuffle();
@@ -112,10 +166,20 @@ public class LevelGenerator : MonoBehaviour
         List<RoomTile> newRoomPassages = new List<RoomTile>(newRoom.Passages);
         newRoomPassages.Shuffle();
 
-        foreach (RoomTile oldRoomPassage in oldRoomPassages)
+        foreach (Passage oldRoomPassage in oldRoomPassages)
         {
-            foreach (RoomTile newRoomPassage in newRoomPassages)
+            if (oldRoomPassage.HasConnection)
             {
+                continue;
+            }
+
+            foreach (Passage newRoomPassage in newRoomPassages)
+            {
+                if (newRoomPassage.HasConnection)
+                {
+                    continue;
+                }
+
                 CardinalDirection oldPassageDirection = Utils.GetCardinalDirection(oldRoomPassage.transform);
                 CardinalDirection newPassageDirection = Utils.GetCardinalDirection(newRoomPassage.transform);
                 CardinalDirection desiredDirection = Utils.GetOppositeDirection(oldPassageDirection);
@@ -139,54 +203,83 @@ public class LevelGenerator : MonoBehaviour
                 Vector3 newPassageOffset = newRoomPassage.transform.position - newRoom.transform.position;
                 newRoom.transform.position = oldRoomPassage.transform.position - newPassageOffset;
 
-                if (!IsRoomCollidingWithAnyOther(newRoom, spawnedRooms, roomToIgnore: oldRoom))
+                yield return new WaitForSeconds(0.05f);
+
+                if (!TestRoomConnectionForCollisions(oldRoom, newRoom, newRoomPassage, spawnedRooms))
                 {
-                    return true;
+                    oldRoomPassage.HasConnection = true;
+                    newRoomPassage.HasConnection = true;
+                    onFinished(true);
+                    yield break;
                 }
             }
         }
 
-        return false;
+        onFinished(false);
     }
 
-    private static bool IsRoomCollidingWithAnyOther(Room room, List<Room> roomInstances, Room roomToIgnore)
+    private static bool TestRoomConnectionForCollisions(Room oldRoom, Room newRoom, Passage newRoomPassageUsed, List<Room> spawnedRooms)
     {
-        foreach (Room otherRoom in roomInstances)
+        foreach (Room someRoom in spawnedRooms)
         {
-            if (otherRoom == room)
+            if (someRoom == oldRoom)
             {
                 continue;
             }
 
-            if (otherRoom == roomToIgnore)
+            if (someRoom == newRoom)
             {
                 continue;
             }
 
-            if (room.Collider.bounds.Intersects(otherRoom.Collider.bounds))
+            if (newRoom.Collider.bounds.Intersects(someRoom.Collider.bounds))
             {
+                Debug.LogFormat("FAIL: {0} was colliding with {1}!", newRoom.name, someRoom.name);
                 return true;
             }
 
-            foreach (Passage passage in otherRoom.Passages)
+            foreach (Passage passage in someRoom.Passages)
             {
-                if (room.Collider.bounds.Intersects(passage.Collider.bounds))
+                if (passage.HasConnection)
                 {
+                    continue;
+                }
+
+                if (newRoom.Collider.bounds.Intersects(passage.Collider.bounds))
+                {
+                    Debug.LogFormat("FAIL: {0} was colliding with one of {1}'s passages!", newRoom.name, someRoom.name);
                     return true;
                 }
             }
 
-            foreach (Passage passage in room.Passages)
+            foreach (Passage passage in newRoom.Passages)
             {
-                if (passage.Collider.bounds.Intersects(otherRoom.Collider.bounds))
+                if (passage.HasConnection)
                 {
+                    continue;
+                }
+
+                if (passage == newRoomPassageUsed)
+                {
+                    continue;
+                }
+
+                if (passage.Collider.bounds.Intersects(someRoom.Collider.bounds))
+                {
+                    Debug.LogFormat("FAIL: One of {0}'s passages was colliding with {1}!", newRoom.name, someRoom.name);
                     return true;
                 }
 
-                foreach (Passage otherRoomPassage in otherRoom.Passages)
+                foreach (Passage otherRoomPassage in someRoom.Passages)
                 {
+                    if (otherRoomPassage.HasConnection)
+                    {
+                        continue;
+                    }
+
                     if (passage.Collider.bounds.Intersects(otherRoomPassage.Collider.bounds))
                     {
+                        Debug.LogFormat("FAIL: One of {0}'s passages was colliding with one of {1}'s passages!", newRoom.name, someRoom.name);
                         return true;
                     }
                 }
