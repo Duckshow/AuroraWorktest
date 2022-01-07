@@ -7,6 +7,8 @@ public class Passage : RoomTile
 
     public BoxCollider Collider { get { return collider; } }
 
+    public bool HasConnection;
+
     protected override void OnValidate()
     {
         base.OnValidate();

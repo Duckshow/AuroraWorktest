@@ -99,4 +99,17 @@ public class Room : MonoBehaviour
             }
         }
     }
+
+    public bool HasUnconnectedPassages()
+    {
+        foreach (Passage passage in passages)
+        {
+            if (!passage.HasConnection)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 }

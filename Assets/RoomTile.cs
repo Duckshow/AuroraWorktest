@@ -16,4 +16,9 @@ public class RoomTile : MonoBehaviour
             Assert.AreNotEqual(TileType.Passage, type, string.Format("{0} is of the type 'Passage', but isn't using the Passage-script!", transform.name));
         }
     }
+
+    public Room GetRoom()
+    {
+        return GetComponentInParent<Room>();
+    }
 }
