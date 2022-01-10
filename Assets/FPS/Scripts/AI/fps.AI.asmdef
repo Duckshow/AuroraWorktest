@@ -1,7 +1,9 @@
 {
     "name": "fps.AI",
+    "rootNamespace": "",
     "references": [
-        "GUID:9c5543eabb73a6249ac07b2c065ee8b4"
+        "GUID:1c49e014830bf844f8dd31378831f329",
+        "GUID:dcd5bacb97aed3e488dc86b9d80dbf63"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
