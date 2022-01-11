@@ -22,20 +22,41 @@ public class LevelGenerator : MonoBehaviour
 
     private List<Room> roomPrefabs = new List<Room>();
 
+
+
+    private List<Room> spawnedRooms = new List<Room>();
+
+    [SerializeField] private Material mat;
+    Texture2D tex;
+    const int TEX_SIZE = 150;
+    const int TEX_OFFSET = TEX_SIZE / 2;
+
+
     private void OnValidate()
     {
         roomsOnPath = Mathf.Max(1, roomsOnPath);
         maxBranchDepth = Mathf.Max(1, maxBranchDepth);
     }
 
+    private void Awake()
+    {
+        SetRandomSeed();
+    }
+
     private void Start()
     {
-        if (useRandomSeed)
-        {
-            Random.InitState(seed);
-        }
+        tex = new Texture2D(TEX_SIZE, TEX_SIZE);
+        tex.filterMode = FilterMode.Point;
 
         StartCoroutine(GenerateLevel());
+    }
+
+    private void SetRandomSeed()
+    {
+        int seedToUse = useRandomSeed ? seed : Random.Range(int.MinValue, int.MaxValue); // the point of this is just to expose the seed in the editor, so we can save it if we want
+
+        Debug.LogFormat("SEED: {0}", seedToUse);
+        Random.InitState(seedToUse);
     }
 
     private IEnumerator GenerateLevel()
@@ -47,12 +68,19 @@ public class LevelGenerator : MonoBehaviour
             yield break;
         }
 
-        List<Room> spawnedRooms = new List<Room>();
+
+        foreach (var prefab in roomPrefabs)
+        {
+            PoolManager.Instance.warmPool(prefab.gameObject, 10);
+        }
+
         List<Room> possibleStartRooms = GetPossibleStartRooms();
         List<Room> possiblePathRooms = GetPossiblePathRooms();
         List<Room> possibleEndRooms = GetPossibleEndRooms();
 
-        Room startRoom = SpawnRoom(namePrefix: "Start: ", possibleStartRooms[Random.Range(0, possibleStartRooms.Count)], spawnedRooms);
+        Room startRoom = SpawnRoom(possibleStartRooms[Random.Range(0, possibleStartRooms.Count)]);
+        OnSuccessfullyPlacedRoom(startRoom, namePrefix: "Start: ");
+
         Room lastSpawnedRoom = startRoom;
 
         if (playerInstance != null)
@@ -60,13 +88,31 @@ public class LevelGenerator : MonoBehaviour
             playerInstance.transform.position = startRoom.transform.position + startRoom.Collider.center + new Vector3(0, 5, 0); // TODO: replace this with an actual spawn point
         }
 
+        CardinalDirection forbiddenDirection = CardinalDirection.None;
+
         for (int i = 0; i < roomsOnPath; i++)
         {
-            yield return TryAddNewRoomToSpawnedRoom(namePrefix: string.Format("Path #{0}: ", i), lastSpawnedRoom, possiblePathRooms, spawnedRooms, onFinished: (Room addedRoom) => { lastSpawnedRoom = addedRoom; });
+            yield return TryAddNewRoomToSpawnedRoom(namePrefix: string.Format("Path #{0}: ", i), lastSpawnedRoom, possiblePathRooms, forbiddenDirection, onFinished: (Room addedRoom) =>
+            {
+                lastSpawnedRoom = addedRoom;
+
+                if (i == 0)
+                {
+                    foreach (Passage passage in startRoom.Passages)
+                    {
+                        if (passage.HasConnection)
+                        {
+                            forbiddenDirection = Utils.GetOppositeDirection(Utils.GetCardinalDirection(passage.transform)); // by forbidding the initial opposite direction, we should be able to prevent the level from curling back in on itself
+                            break;
+                        }
+                    }
+                }
+            });
         }
 
-        yield return TryAddNewRoomToSpawnedRoom(namePrefix: "End: ", lastSpawnedRoom, possibleEndRooms, spawnedRooms);
+        yield return TryAddNewRoomToSpawnedRoom(namePrefix: "End: ", lastSpawnedRoom, possibleEndRooms, forbiddenDirection);
 
+        int spawnedBranchRoomCount = 0;
         int previousSpawnedRoomCount = 0;
         int newlySpawnedRoomCount = 0;
         for (int depthIndex = 0; depthIndex < maxBranchDepth; depthIndex++)
@@ -82,10 +128,14 @@ public class LevelGenerator : MonoBehaviour
 
                 while (room.HasUnconnectedPassages())
                 {
-                    yield return TryAddNewRoomToSpawnedRoom(namePrefix: string.Format("Branch (Depth: {0}): ", depthIndex + 1), room, possibleBranchRooms, spawnedRooms);
+                    yield return TryAddNewRoomToSpawnedRoom(namePrefix: string.Format("BranchRoom #{0}: ", spawnedBranchRoomCount), room, possibleBranchRooms, forbiddenDirection: CardinalDirection.None);
+                    spawnedBranchRoomCount++;
                 }
             }
         }
+
+        tex.Apply();
+        mat.mainTexture = tex;
     }
 
     private List<Room> GetPossibleStartRooms()
@@ -113,53 +163,110 @@ public class LevelGenerator : MonoBehaviour
         return roomPrefabs;
     }
 
-    private static IEnumerator TryAddNewRoomToSpawnedRoom(string namePrefix, Room oldRoom, List<Room> prefabsToChooseFrom, List<Room> allSpawnedRooms, System.Action<Room> onFinished = null)
+    private IEnumerator TryAddNewRoomToSpawnedRoom(string namePrefix, Room oldRoom, List<Room> prefabsToChooseFrom, CardinalDirection forbiddenDirection, System.Action<Room> onFinished = null)
     {
         prefabsToChooseFrom.Shuffle();
 
+        Debug.LogFormat("========== Trying to add room to {0} ==========", oldRoom.name);
+
         foreach (Room newRoomPrefab in prefabsToChooseFrom)
         {
-            Room newRoom = SpawnRoom(namePrefix, newRoomPrefab, allSpawnedRooms);
+            Room newRoom = SpawnRoom(newRoomPrefab);
 
             bool success = false;
-            yield return TryConnectRooms(oldRoom, newRoom, allSpawnedRooms, (bool result) => { success = result; });
-
-            if (success)
+            List<string> errors = null;
+            yield return TryConnectRooms(oldRoom, newRoom, forbiddenDirection, (bool result, List<string> errorMessages) =>
             {
-                if (onFinished != null)
+                success = result;
+                errors = errorMessages;
+            });
+
+            if (!success)
+            {
+                Debug.LogFormat("Failed using {0};", newRoom.name);
+                foreach (string message in errors)
                 {
-                    onFinished(newRoom);
+                    Debug.Log("\t" + message);
                 }
 
-                yield break;
+                OnFailedPlacingRoom(newRoom);
+                continue;
             }
 
-            DestroyRoom(newRoom, allSpawnedRooms);
+            if (onFinished != null)
+            {
+                onFinished(newRoom);
+            }
+
+            OnSuccessfullyPlacedRoom(newRoom, namePrefix);
+            Debug.Log("========== Success ==========");
+            yield break;
         }
 
         throw new System.Exception(string.Format("LevelGenerator failed in finding a room able to attach anywhere on {0}!", oldRoom.name));
     }
 
-    private static Room SpawnRoom(string namePrefix, Room roomPrefab, List<Room> spawnedRooms)
+    private Room SpawnRoom(Room roomPrefab)
     {
         // TODO: would be safer to use Addressables.Instantiate, memory-management wise - but we have to remove LoadAssetsAsync then, if that's possible 
 
-        Room roomInstance = Instantiate(roomPrefab.gameObject, Vector3.zero, Quaternion.identity).GetComponent<Room>();
-        roomInstance.name = namePrefix + roomInstance.name;
-
-        spawnedRooms.Add(roomInstance);
+        Room roomInstance = PoolManager.Instance.spawnObject(roomPrefab.gameObject, Vector3.zero, Quaternion.identity).GetComponent<Room>();// Instantiate(roomPrefab.gameObject, Vector3.zero, Quaternion.identity).GetComponent<Room>();
+        roomInstance.transform.SetParent(transform);
 
         return roomInstance;
     }
 
-    private static void DestroyRoom(Room roomInstance, List<Room> spawnedRooms)
+    private void OnSuccessfullyPlacedRoom(Room room, string namePrefix)
     {
-        spawnedRooms.Remove(roomInstance);
-        Destroy(roomInstance.gameObject);
+        room.name = namePrefix + room.name;
+        spawnedRooms.Add(room);
+
+        {
+            BoundingBox2D bb = BoundingBox2D.GetRoomBoundingBox(room, true);
+
+            Color roomColor = Random.ColorHSV();
+            roomColor.a = 1;
+
+            for (int x = 0; x < bb.Dimensions.x; x++)
+            {
+                for (int y = 0; y < bb.Dimensions.y; y++)
+                {
+                    Vector2Int pixel = new Vector2Int(TEX_OFFSET + bb.BottomLeftCorner.x + x, TEX_OFFSET + bb.BottomLeftCorner.y + y);
+
+                    if (tex.GetPixel(pixel.x, pixel.y) == Color.yellow)
+                    {
+                        continue;
+                    }
+
+                    tex.SetPixel(pixel.x, pixel.y, roomColor);
+                }
+            }
+        }
+
+        foreach (Passage passage in room.Passages)
+        {
+            BoundingBox2D bb = BoundingBox2D.GetPassageBoundingBox(passage);
+
+            for (int x = 0; x < bb.Dimensions.x; x++)
+            {
+                for (int y = 0; y < bb.Dimensions.y; y++)
+                {
+                    tex.SetPixel(TEX_OFFSET + bb.BottomLeftCorner.x + x, TEX_OFFSET + bb.BottomLeftCorner.y + y, Color.yellow);
+                }
+            }
+        }
     }
 
-    private static IEnumerator TryConnectRooms(Room oldRoom, Room newRoom, List<Room> spawnedRooms, System.Action<bool> onFinished)
+    private void OnFailedPlacingRoom(Room room)
     {
+        //Destroy(roomInstance.gameObject);
+        PoolManager.Instance.releaseObject(room.gameObject);
+    }
+
+    private IEnumerator TryConnectRooms(Room oldRoom, Room newRoom, CardinalDirection forbiddenDirection, System.Action<bool, List<string>> onFinished)
+    {
+        List<string> errorMessages = new List<string>();
+
         List<RoomTile> oldRoomPassages = new List<RoomTile>(oldRoom.Passages);
         oldRoomPassages.Shuffle();
 
@@ -173,119 +280,162 @@ public class LevelGenerator : MonoBehaviour
                 continue;
             }
 
+            if (Utils.GetCardinalDirection(oldRoomPassage.transform) == forbiddenDirection)
+            {
+                continue;
+            }
+
             foreach (Passage newRoomPassage in newRoomPassages)
             {
-                if (newRoomPassage.HasConnection)
-                {
-                    continue;
-                }
-
                 CardinalDirection oldPassageDirection = Utils.GetCardinalDirection(oldRoomPassage.transform);
                 CardinalDirection newPassageDirection = Utils.GetCardinalDirection(newRoomPassage.transform);
                 CardinalDirection desiredDirection = Utils.GetOppositeDirection(oldPassageDirection);
 
-                int attemptsNeeded = System.Enum.GetValues(typeof(CardinalDirection)).Length;
-                for (int attemptIndex = 0; attemptIndex < attemptsNeeded; attemptIndex++)
-                {
-                    if (Utils.GetCardinalDirection(newRoomPassage.transform) == desiredDirection)
-                    {
-                        break;
-                    }
-
-                    if (attemptIndex == attemptsNeeded - 1)
-                    {
-                        throw new System.Exception(string.Format("{0} failed to find the correct rotation, from {1} to {2}!", newRoom.name, newPassageDirection, desiredDirection));
-                    }
-
-                    newRoom.transform.Rotate(0f, 45f, 0f, Space.World); // TODO: calculate instead how many degrees are needed to get from one CardinalDirection to another
-                }
+                float degrees = Utils.GetDegreesBetweenDirections(newPassageDirection, desiredDirection);
+                newRoom.transform.Rotate(0f, degrees, 0f, Space.World);
 
                 Vector3 newPassageOffset = newRoomPassage.transform.position - newRoom.transform.position;
                 newRoom.transform.position = oldRoomPassage.transform.position - newPassageOffset;
 
-                yield return new WaitForSeconds(0.05f);
+                yield return new WaitForSeconds(0.01f);
 
-                if (!TestRoomConnectionForCollisions(oldRoom, newRoom, newRoomPassage, spawnedRooms))
+                if (newRoom.Passages.Length > 1 && !DoesRoomHaveOtherPassageNotPointingInDirection(newRoom, newRoomPassage, forbiddenDirection))
                 {
-                    oldRoomPassage.HasConnection = true;
-                    newRoomPassage.HasConnection = true;
-                    onFinished(true);
-                    yield break;
+                    continue;
                 }
+
+                if (IsNewRoomCollidingWithAnything(oldRoom, newRoom, newRoomPassage, out string errorMessage))
+                {
+                    errorMessages.Add(errorMessage);
+                    continue;
+                }
+
+                oldRoomPassage.HasConnection = true;
+                newRoomPassage.HasConnection = true;
+                onFinished(true, null);
+                yield break;
             }
         }
 
-        onFinished(false);
+        onFinished(false, errorMessages);
     }
 
-    private static bool TestRoomConnectionForCollisions(Room oldRoom, Room newRoom, Passage newRoomPassageUsed, List<Room> spawnedRooms)
+    private static bool DoesRoomHaveOtherPassageNotPointingInDirection(Room room, Passage ignorePassage, CardinalDirection forbiddenDirection)
     {
-        foreach (Room someRoom in spawnedRooms)
+        if (forbiddenDirection == CardinalDirection.None)
         {
-            if (someRoom == oldRoom)
+            return true;
+        }
+
+        foreach (Passage passage in room.Passages)
+        {
+            if (passage == ignorePassage)
             {
                 continue;
             }
 
-            if (someRoom == newRoom)
+            if (Utils.GetCardinalDirection(passage.transform) != forbiddenDirection)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private bool IsNewRoomCollidingWithAnything(Room oldRoom, Room newRoom, Passage newRoomPassageUsed, out string errorMessage)
+    {
+        BoundingBox2D newRoomBoundingBox = BoundingBox2D.GetRoomBoundingBox(newRoom);
+
+        foreach (Room otherRoom in spawnedRooms)
+        {
+            if (otherRoom == oldRoom)
             {
                 continue;
             }
 
-            if (newRoom.Collider.bounds.Intersects(someRoom.Collider.bounds))
+            BoundingBox2D otherRoomBoundingBox = BoundingBox2D.GetRoomBoundingBox(otherRoom);
+
+            if (BoundingBox2D.AreBoxesColliding(newRoomBoundingBox, otherRoomBoundingBox))
             {
-                Debug.LogFormat("FAIL: {0} was colliding with {1}!", newRoom.name, someRoom.name);
+                errorMessage = string.Format("Collides with {0} (Pos: {1}, Rot: {2}, BoxBL: {3}, BoxTR: {4})!", otherRoom.name, newRoom.transform.position, newRoom.transform.eulerAngles, newRoomBoundingBox.BottomLeftCorner, newRoomBoundingBox.TopRightCorner);
                 return true;
             }
 
-            foreach (Passage passage in someRoom.Passages)
+            // if (newRoom.Collider.bounds.Intersects(someRoom.Collider.bounds))
+            // {
+            //     errorMessage = string.Format("Collides with {0} (Pos: {1}, Rot: {2}, Center: {3}, Size: {4})!", someRoom.name, newRoom.transform.position, newRoom.transform.eulerAngles, newRoom.GetComponent<BoxCollider>().center, newRoom.GetComponent<BoxCollider>().size);
+            //     return true;
+            // }
+
+            foreach (Passage otherRoomPassage in otherRoom.Passages)
             {
-                if (passage.HasConnection)
+                if (otherRoomPassage.HasConnection)
                 {
                     continue;
                 }
 
-                if (newRoom.Collider.bounds.Intersects(passage.Collider.bounds))
+                BoundingBox2D otherRoomPassageBoundingBox = BoundingBox2D.GetPassageBoundingBox(otherRoomPassage);
+
+                if (BoundingBox2D.AreBoxesColliding(newRoomBoundingBox, otherRoomPassageBoundingBox))
                 {
-                    Debug.LogFormat("FAIL: {0} was colliding with one of {1}'s passages!", newRoom.name, someRoom.name);
+                    errorMessage = string.Format("Collides with {0}'s {1} (Pos: {2}, {3})!", otherRoom.name, otherRoomPassage.name, newRoom.transform.position, newRoom.transform.eulerAngles);
                     return true;
                 }
+
+                // if (newRoom.Collider.bounds.Intersects(passage.Collider.bounds))
+                // {
+                //     errorMessage = string.Format("Collides with {0}'s {1} (Pos: {2}, {3})!", someRoom.name, passage.name, newRoom.transform.position, newRoom.transform.eulerAngles);
+                //     return true;
+                // }
             }
 
-            foreach (Passage passage in newRoom.Passages)
+            foreach (Passage newRoomPassage in newRoom.Passages)
             {
-                if (passage.HasConnection)
+                if (newRoomPassage == newRoomPassageUsed)
                 {
                     continue;
                 }
 
-                if (passage == newRoomPassageUsed)
-                {
-                    continue;
-                }
+                BoundingBox2D newRoomPassageBoundingBox = BoundingBox2D.GetPassageBoundingBox(newRoomPassage);
 
-                if (passage.Collider.bounds.Intersects(someRoom.Collider.bounds))
+                if (BoundingBox2D.AreBoxesColliding(newRoomPassageBoundingBox, otherRoomBoundingBox))
                 {
-                    Debug.LogFormat("FAIL: One of {0}'s passages was colliding with {1}!", newRoom.name, someRoom.name);
+                    errorMessage = string.Format("{0} collides with {1}, (Pos: {2}, {3})!", newRoomPassage.name, otherRoom.name, newRoom.transform.position, newRoom.transform.eulerAngles);
                     return true;
                 }
 
-                foreach (Passage otherRoomPassage in someRoom.Passages)
+                // if (passage.Collider.bounds.Intersects(someRoom.Collider.bounds))
+                // {
+                //     errorMessage = string.Format("{0} collides with {1}, (Pos: {2}, {3})!", passage.name, someRoom.name, newRoom.transform.position, newRoom.transform.eulerAngles);
+                //     return true;
+                // }
+
+                foreach (Passage otherRoomPassage in otherRoom.Passages)
                 {
                     if (otherRoomPassage.HasConnection)
                     {
                         continue;
                     }
 
-                    if (passage.Collider.bounds.Intersects(otherRoomPassage.Collider.bounds))
+                    BoundingBox2D otherRoomPassageBoundingBox = BoundingBox2D.GetPassageBoundingBox(otherRoomPassage);
+
+                    if (BoundingBox2D.AreBoxesColliding(newRoomPassageBoundingBox, otherRoomPassageBoundingBox))
                     {
-                        Debug.LogFormat("FAIL: One of {0}'s passages was colliding with one of {1}'s passages!", newRoom.name, someRoom.name);
+                        errorMessage = string.Format("{0} collides with {1} (Pos: {2}, {3})!", newRoomPassage.name, otherRoomPassage.name, newRoom.transform.position, newRoom.transform.eulerAngles);
                         return true;
                     }
+
+                    // if (newRoomPassage.Collider.bounds.Intersects(otherRoomPassage.Collider.bounds))
+                    // {
+                    //     errorMessage = string.Format("{0} collides with {1} (Pos: {2}, {3})!", newRoomPassage.name, otherRoomPassage.name, newRoom.transform.position, newRoom.transform.eulerAngles);
+                    //     return true;
+                    // }
                 }
             }
         }
 
+        errorMessage = "";
         return false;
     }
 }

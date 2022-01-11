@@ -53,16 +53,51 @@ public static class Utils
         }
     }
 
+    public static float GetDegreesBetweenDirections(CardinalDirection fromDir, CardinalDirection toDir)
+    {
+        if (fromDir == toDir)
+        {
+            return 0f;
+        }
+
+        int directionCount = System.Enum.GetValues(typeof(CardinalDirection)).Length - 1; // -1 because the first is None
+        float degreesBetweenDirections = 360f / (float)directionCount;
+
+        int fromIndex = (int)fromDir - 1;
+        int toIndex = (int)toDir - 1;
+
+        int stepsBetweenDirections;
+
+        if (toIndex > fromIndex)
+        {
+            stepsBetweenDirections = toIndex - fromIndex;
+        }
+        else
+        {
+            stepsBetweenDirections = directionCount - 1 - fromIndex + toIndex + 1;
+        }
+
+        return stepsBetweenDirections * degreesBetweenDirections;
+    }
+
     public static void Shuffle<T>(this IList<T> ts) // source: https://forum.unity.com/threads/clever-way-to-shuffle-a-list-t-in-one-line-of-c-code.241052/
     {
         var count = ts.Count;
         var last = count - 1;
         for (var i = 0; i < last; ++i)
         {
-            var r = UnityEngine.Random.Range(i, count);
+            var r = Random.Range(i, count);
             var tmp = ts[i];
             ts[i] = ts[r];
             ts[r] = tmp;
         }
+    }
+
+    public static Vector2Int SwapComponents(this Vector2Int v)
+    {
+        int tmp = v.x;
+        v.x = v.y;
+        v.y = tmp;
+        return v;
     }
 }
