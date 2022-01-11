@@ -4,7 +4,7 @@ using UnityEngine.Assertions;
 [RequireComponent(typeof(BoxCollider))]
 public class Room : MonoBehaviour
 {
-    public const int MIN_ROOM_WIDTH = 3;
+    public const int MIN_ROOM_WIDTH = 2;
     public const int DEFAULT_ROOM_HEIGHT = 5;
 
     [SerializeField, HideInInspector] private RoomTile[] roomTiles;
@@ -24,10 +24,9 @@ public class Room : MonoBehaviour
 
         const float TOLERANCE = 0.01f;
 
-        Vector3 boundaryTrim = new Vector3(1f + TOLERANCE, 0f, 1f + TOLERANCE);
         collider = GetComponent<BoxCollider>();
-        collider.size = Dimensions - boundaryTrim;
-        collider.center = (collider.size + new Vector3(TOLERANCE, 0f, TOLERANCE)) / 2f;
+        collider.size = Dimensions - new Vector3(TOLERANCE, TOLERANCE, TOLERANCE);
+        collider.center = (collider.size + new Vector3(TOLERANCE, TOLERANCE, TOLERANCE)) / 2f;
 
         PerformSafetyChecks();
     }
@@ -44,10 +43,10 @@ public class Room : MonoBehaviour
             if (localPos.z > dimensions.z) { dimensions.z = Mathf.FloorToInt(localPos.z); }
         }
 
-        dimensions.x++;
-        dimensions.z++;
-
         dimensions.y = DEFAULT_ROOM_HEIGHT;
+
+        // we do not need to add 1 to to the dimensions like you normally might, because a room is surrounded by walls, which are 0.5 units thick (because they can overlap), thus making any room 1 unit smaller
+
         return dimensions;
     }
 
@@ -68,8 +67,8 @@ public class Room : MonoBehaviour
             Vector3 passageLocalPos = passage.transform.localPosition;
 
             bool isOnEdgeWest = passageLocalPos.x == 0;
-            bool isOnEdgeEast = passageLocalPos.x == Dimensions.x - 1;
-            bool isOnEdgeNorth = passageLocalPos.z == Dimensions.z - 1;
+            bool isOnEdgeEast = passageLocalPos.x == Dimensions.x;
+            bool isOnEdgeNorth = passageLocalPos.z == Dimensions.z;
             bool isOnEdgeSouth = passageLocalPos.z == 0;
 
             bool isOnCornerSouthWest = isOnEdgeSouth && isOnEdgeWest;
