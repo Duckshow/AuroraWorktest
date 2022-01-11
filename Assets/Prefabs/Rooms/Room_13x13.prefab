@@ -349,7 +349,7 @@ MonoBehaviour:
   - {fileID: 8888262481128710697}
   - {fileID: 5398688908189859485}
   - {fileID: 7499896992277125377}
-  dimensions: {x: 14, y: 5, z: 14}
+  dimensions: {x: 13, y: 5, z: 13}
   passages:
   - {fileID: 7191904238209145081}
   - {fileID: 9052348602696583692}
@@ -365,7 +365,7 @@ BoxCollider:
   m_IsTrigger: 1
   m_Enabled: 1
   serializedVersion: 2
-  m_Size: {x: 12.99, y: 5, z: 12.99}
+  m_Size: {x: 12.95, y: 4.95, z: 12.95}
   m_Center: {x: 6.5, y: 2.5, z: 6.5}
 --- !u!1001 &46060735856518700
 PrefabInstance:
@@ -2038,7 +2038,7 @@ PrefabInstance:
     - target: {fileID: 878993276137019261, guid: 5305216aed160b34ebdd8fade33e1699,
         type: 3}
       propertyPath: m_Center.z
-      value: 1.485
+      value: 0.95
       objectReference: {fileID: 0}
     - target: {fileID: 2439410984515580061, guid: 5305216aed160b34ebdd8fade33e1699,
         type: 3}
@@ -2615,7 +2615,7 @@ PrefabInstance:
     - target: {fileID: 878993276137019261, guid: 5305216aed160b34ebdd8fade33e1699,
         type: 3}
       propertyPath: m_Center.z
-      value: 1.485
+      value: 0.95
       objectReference: {fileID: 0}
     - target: {fileID: 2439410984515580061, guid: 5305216aed160b34ebdd8fade33e1699,
         type: 3}

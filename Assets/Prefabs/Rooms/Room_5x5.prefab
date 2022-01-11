@@ -95,7 +95,7 @@ MonoBehaviour:
   - {fileID: 5919947947429408594}
   - {fileID: 3325737516662655229}
   - {fileID: 2217731782210248583}
-  dimensions: {x: 5, y: 5, z: 5}
+  dimensions: {x: 4, y: 5, z: 4}
   passages:
   - {fileID: 4366431269644186029}
   collider: {fileID: 5159683801731661720}
@@ -110,7 +110,7 @@ BoxCollider:
   m_IsTrigger: 1
   m_Enabled: 1
   serializedVersion: 2
-  m_Size: {x: 3.99, y: 5, z: 3.99}
+  m_Size: {x: 3.95, y: 4.95, z: 3.95}
   m_Center: {x: 2, y: 2.5, z: 2}
 --- !u!1001 &55695906141358116
 PrefabInstance:
