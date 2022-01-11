@@ -19,12 +19,6 @@ public class RoomTileEditor : Editor
         if (GUILayout.Button("Rotate CCW")) { RotateTile(roomTile, -45f); }
 
         RoundAndClampLocalPosition(roomTile);
-
-        Passage passage = roomTile as Passage;
-        if (passage != null)
-        {
-            passage.UpdateCollider();
-        }
     }
 
     private static void RoundAndClampLocalPosition(RoomTile roomTile)

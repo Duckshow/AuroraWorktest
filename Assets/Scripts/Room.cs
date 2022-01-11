@@ -1,7 +1,6 @@
 using UnityEngine;
 using UnityEngine.Assertions;
 
-[RequireComponent(typeof(BoxCollider))]
 public class Room : MonoBehaviour
 {
     public const int MIN_ROOM_WIDTH = 2;
@@ -10,23 +9,15 @@ public class Room : MonoBehaviour
     [SerializeField, HideInInspector] private RoomTile[] roomTiles;
     [SerializeField, HideInInspector] private Vector3Int dimensions;
     [SerializeField, HideInInspector] private Passage[] passages;
-    [SerializeField, HideInInspector] private new BoxCollider collider;
 
     public Vector3Int Dimensions { get { return dimensions; } }
     public Passage[] Passages { get { return passages; } }
-    public BoxCollider Collider { get { return collider; } }
 
     private void OnValidate()
     {
         roomTiles = GetComponentsInChildren<RoomTile>();
         dimensions = FindDimensions(roomTiles);
         passages = GetComponentsInChildren<Passage>();
-
-        const float TOLERANCE = 0.01f;
-
-        collider = GetComponent<BoxCollider>();
-        collider.size = Dimensions - new Vector3(TOLERANCE, TOLERANCE, TOLERANCE);
-        collider.center = (collider.size + new Vector3(TOLERANCE, TOLERANCE, TOLERANCE)) / 2f;
 
         PerformSafetyChecks();
     }
@@ -87,6 +78,8 @@ public class Room : MonoBehaviour
             if (isOnEdgeSouth) { Assert.AreEqual(CardinalDirection.South, dir, string.Format("{0} has a Passage on the Southern edge, but it's facing {1}!", transform.name, dir)); }
 
 
+            BoundingBox2D passageBox = BoundingBox2D.GetPassageBoundingBox(passage);
+
             foreach (Passage otherPassage in Passages)
             {
                 if (otherPassage == passage)
@@ -94,7 +87,8 @@ public class Room : MonoBehaviour
                     continue;
                 }
 
-                Assert.IsFalse(passage.Collider.bounds.Intersects(otherPassage.Collider.bounds), string.Format("{0} has two Passages whose colliders are intersecting!", transform.name));
+                BoundingBox2D otherPassageBox = BoundingBox2D.GetPassageBoundingBox(otherPassage);
+                Assert.IsFalse(BoundingBox2D.AreBoxesColliding(passageBox, otherPassageBox), string.Format("{0} has two Passages whose colliders are intersecting!", transform.name));
             }
         }
     }
